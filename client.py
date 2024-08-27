@@ -13,43 +13,62 @@ WEBSOCKET_URL = 'ws://localhost:9999/data'
 ALREADY_DONE = False
 socket_id = -1
 
-async def handle_client(client_reader, client_writer):
+async def handle_client(socket_reader, socket_writer):
     global socket_id
     socket_id += 1
 
+
     try:
         async with websockets.connect(WEBSOCKET_URL) as websocket:
+
+            print(f"New client connected socket {socket_id}: {socket_reader} {socket_writer}")
+            m = conn.WSMsg(socket_id, conn.MsgType.CONNECT)
+            await websocket.send(m.to_bytes())
+
             # Forwarding data from client to WebSocket
             async def client_to_websocket():
                 while True:
-                    data = await client_reader.read(2024)
+                    data = await socket_reader.read(2024)
                     print(f'TCP{socket_id}>WS: ', hashlib.md5(data).hexdigest())
                     if not data:
                         break
-                    c = conn.Conn(socket_id, data)
-                    await websocket.send(c.to_ws_bytes())
-            
+                    c = conn.WSMsg(socket_id, conn.MsgType.DATA, data)
+                    await websocket.send(c.to_bytes())
+
             # Forwarding data from WebSocket to client
             async def websocket_to_client():
                 while True:
                     message = await websocket.recv()
-                    c = conn.Conn.from_ws_bytes(message)
+                    c = conn.WSMsg.from_bytes(message)
+
+                    # XXX this is ugly, because it means that the data is sent twice or more if 2+ connections..
                     if c.socketid == socket_id:
-                        # XXX this is ugly, because it means that the data is sent twice or more if 2+ connections..
-                        print(f'WS>TCP@{socket_id}: ', hashlib.md5(message).hexdigest())
-                        client_writer.write(c.data)
-                        await client_writer.drain()
-            
+                        if c.msg == conn.MsgType.DISCONNECT:
+                            print(f"Client {socket_id} disconnected")
+                            break
+                        else:
+                            print(f'WS>TCP@{socket_id}: ', hashlib.md5(message).hexdigest())
+                            socket_writer.write(c.payload)
+                            await socket_writer.drain()
+                    else:
+                        print(f'WS>TCP@{socket_id}: ', hashlib.md5(message).hexdigest(), 'skipping')
+
+
             # Run both tasks concurrently
             await asyncio.gather(client_to_websocket(), websocket_to_client())
+            print(f">>>> Client {socket_id} disconnected")
 
     except Exception as e:
         print(f"Error: {e}")
         import traceback
         traceback.print_exc()
     finally:
-        client_writer.close()
-        await client_writer.wait_closed()
+        print(f">>>>>>>>>> Closing client {socket_id}")
+        m = conn.WSMsg(socket_id, conn.MsgType.DISCONNECT)
+        await websocket.send(m.to_bytes())
+
+        socket_writer.close()
+        await socket_writer.wait_closed()
 
 async def main():
     port = PORT

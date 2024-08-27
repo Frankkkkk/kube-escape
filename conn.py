@@ -1,17 +1,41 @@
+from typing import Optional
 import bencoder
+from enum import Enum
 
-class Conn:
+
+
+class MsgType(Enum):
+    CONNECT = 0
+    DISCONNECT = 1
+    DATA = 2
+
+
+class WSMsg:
     socketid: int
-    data: bytes
+    msg: MsgType
+    payload: Optional[bytes]
 
-    def __init__(self, socketid: int, data: bytes):
+    def __init__(self, socketid: int, msg: MsgType, payload: Optional[bytes] = None):
         self.socketid = socketid
-        self.data = data
+        self.msg = msg
+        self.payload = payload
 
-    def to_ws_bytes(self) -> bytes:
-        return bencoder.encode({b"socketid": self.socketid, b"data": self.data})
 
     @staticmethod
-    def from_ws_bytes(b: bytes) -> 'Conn':
+    def from_bytes(b: bytes) -> 'WSMsg':
         d = bencoder.decode(b)
-        return Conn(d[b"socketid"], d[b"data"])
+        socketid = d[b"sid"]
+        mtype = MsgType(d[b"mt"])
+
+        if mtype == MsgType.CONNECT:
+            return WSMsg(socketid, mtype)
+        elif mtype == MsgType.DISCONNECT:
+            return WSMsg(socketid, mtype)
+        elif mtype == MsgType.DATA:
+            return WSMsg(socketid, mtype, d[b"data"])
+
+    def to_bytes(self) -> bytes:
+        d = {b"sid": self.socketid, b"mt": self.msg.value}
+        if self.payload:
+            d[b"data"] = self.payload
+        return bencoder.encode(d)

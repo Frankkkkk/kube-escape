@@ -9,60 +9,24 @@ HOST = '192.168.21.30'
 PORT = 6443
 WEBSOCKET_URL = 'ws://localhost:9999/data'
 
-async def handle_client(tcpreader, tcpwriter, ws):
-    sockets = {}
-
-    print(f"New client connected: {tcpreader} {tcpwriter}")
-    try:
-        # Forwarding data from client to WebSocket
-        async def tcp_to_websocket():
-            print("tcp_to_websocket...")
-            while True:
-                data = await tcpreader.read(2024)
-                c = conn.Conn(0, data)
-                socketid = c.socketid
-                print(f'TCP@{socketid}>WS: ', hashlib.md5(data).hexdigest())
-                if not data:
-                    break
-                await ws.send(c.to_ws_bytes())
-        
-        # Forwarding data from WebSocket to client
-        async def websocket_to_tcp():
-            print("websocket_to_tcp...")
-            while True:
-                message = await ws.recv()
-                c = conn.Conn.from_ws_bytes(message)
-                socketid = c.socketid
-                print(f'WS>TCP@{socketid}: ', hashlib.md5(message).hexdigest())
-                tcpwriter.write(c.data)
-                await tcpwriter.drain()
-
-        print("Running both tasks concurrently...")
-        # Run both tasks concurrently
-        await asyncio.gather(tcp_to_websocket(), websocket_to_tcp())
-        print('done')
-
-    except Exception as e:
-        print(f"ASYNCIOD Error: {e}")
-
 
 async def handle_socket_read(socketid, tcpreader, ws):
     try:
         print(f"New socket: {socketid}. Waiting on recv")
-        print(tcpreader)
         while True:
             data = await tcpreader.read(2024)
-            print('GOT DATA', data) 
             if data == b'':
-                print(f"Connection closed: {socketid}")
+                print(f"TCP@{socketid} Connection closed")
+                c = conn.WSMsg(socketid, conn.MsgType.DISCONNECT)
+                await ws.send(c.to_bytes())
                 break
 
-            print(f'TCP@{socketid}>WS: RAW', data)
-            c = conn.Conn(socketid, data)
+            c = conn.WSMsg(socketid, conn.MsgType.DATA, data)
             print(f'TCP@{socketid}>WS: ', hashlib.md5(data).hexdigest())
-            await ws.send(c.to_ws_bytes())
+            await ws.send(c.to_bytes())
+
     except Exception as e:
-        print(f"Error: {e}")
+        print(f"{socketid} Error: {e}")
         import traceback
         traceback.print_exc()
 
@@ -70,22 +34,34 @@ async def handle_socket_read(socketid, tcpreader, ws):
 async def handle_ws_incoming(ws, sockets):
     data = await ws.recv()
 
-    c = conn.Conn.from_ws_bytes(data)
+    c = conn.WSMsg.from_bytes(data)
+    print(f'NEW DATA: {c.socketid} {c.msg} {c.payload}')
     socketid = c.socketid
 
-    if socketid not in sockets:
-        print(f"New socket: {socketid}")
-        tcpreader, tcpwriter = await asyncio.open_connection(HOST, PORT)
-        sockets[socketid] = (tcpreader, tcpwriter)
-        print(f'TCPR: {tcpreader}')
-        asyncio.create_task(handle_socket_read(socketid, tcpreader, ws))
-    else:
+    if c.msg == conn.MsgType.CONNECT:
+        if socketid in sockets:
+            print(f"Socket {socketid} already connected")
+            return
+        else:
+            print(f"New socket: {socketid}")
+            tcpreader, tcpwriter = await asyncio.open_connection(HOST, PORT)
+            sockets[socketid] = (tcpreader, tcpwriter)
+            asyncio.create_task(handle_socket_read(socketid, tcpreader, ws))
+
+    elif c.msg == conn.MsgType.DISCONNECT:
+        if socketid not in sockets:
+            print(f"Socket {socketid} not connected")
+            return
+        else:
+            print(f"Socket {socketid} disconnected")
+            del sockets[socketid]
+            tcpwriter.close()
+            await tcpwriter.wait_closed()
+
+    elif c.msg == conn.MsgType.DATA:
         tcpreader, tcpwriter = sockets[socketid]
-
-    print(f'WS@{socketid}>TCP: ', hashlib.md5(data).hexdigest())
-    print(tcpwriter)
-
-    tcpwriter.write(c.data)
+        print(f'WS@{socketid}>TCP: ', hashlib.md5(data).hexdigest())
+        tcpwriter.write(c.payload)
 
 
 

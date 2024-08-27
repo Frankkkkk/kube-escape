@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 import asyncio
 import websockets
 import hashlib
@@ -22,6 +23,7 @@ async def handle_client(socket_reader, socket_writer):
         try:
             print(f"New client connected socket {socket_id}")
             m = conn.WSMsg(socket_id, conn.MsgType.CONNECT)
+            print(f'TCP>WS: {m}')
             await websocket.send(m.to_bytes())
 
             # Forwarding data from client to WebSocket
@@ -31,6 +33,7 @@ async def handle_client(socket_reader, socket_writer):
                     if not data:
                         c = conn.WSMsg(socket_id, conn.MsgType.DISCONNECT)
                         print(f"Client {socket_id} disconnected")
+                        print(f'TCP>WS: {c}')
                         await websocket.send(c.to_bytes())
                         break
 
@@ -45,7 +48,9 @@ async def handle_client(socket_reader, socket_writer):
                     c = conn.WSMsg.from_bytes(message)
 
                     # XXX this is ugly, because it means that the data is sent twice or more if 2+ connections..
+                    print('c.socketid', c.socketid, 'socket_id', socket_id)
                     if c.socketid == socket_id:
+                        print('ours')
                         if c.msg == conn.MsgType.DISCONNECT:
                             print(f"Client {socket_id} disconnected")
                             break
@@ -57,6 +62,7 @@ async def handle_client(socket_reader, socket_writer):
                             socket_writer.write(c.payload)
                             await socket_writer.drain()
                     else:
+                        print('not ours')
                         print(f'WS>TCP@{socket_id}: ', hashlib.md5(message).hexdigest(), 'skipping')
 
 

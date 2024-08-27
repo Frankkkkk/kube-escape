@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 import asyncio
 import websockets
 import uuid
@@ -15,6 +16,7 @@ async def handle_socket_read(socketid, tcpreader, ws):
         print(f"New socket: {socketid}. Waiting on recv")
         while True:
             data = await tcpreader.read(2024)
+            print(f"TCP@{socketid} Received {len(data)} bytes")
             if data == b'':
                 print(f"TCP@{socketid} Connection closed")
                 c = conn.WSMsg(socketid, conn.MsgType.DISCONNECT)
@@ -62,6 +64,7 @@ async def handle_ws_incoming(cfg, ws, sockets):
         tcpreader, tcpwriter = sockets[socketid]
         print(f'WS>TCP: {c}')
         tcpwriter.write(c.payload)
+        print('written')
 
 
 def get_config():

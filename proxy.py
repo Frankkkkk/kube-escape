@@ -2,12 +2,15 @@ import asyncio
 import websockets
 import hashlib
 
+import websockets.asyncio.server
+
 # List to store connected clients
 connected_clients = set()
 
-async def handler(websocket, path):
+async def handler(websocket):
     # Register the new client
     print(f"New client connected: {websocket}")
+    print(f"WRP: {websocket.request.path}")
     connected_clients.add(websocket)
     try:
         async for message in websocket:
@@ -25,7 +28,7 @@ async def handler(websocket, path):
 
 async def main():
     # Start the WebSocket server
-    server = await websockets.serve(handler, "localhost", 9999)
+    server = await websockets.asyncio.server.serve(handler, "localhost", 9999)
     print("WebSocket server listening on ws://localhost:9999")
     await server.wait_closed()
 

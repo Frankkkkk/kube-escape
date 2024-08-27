@@ -27,6 +27,46 @@ You'll need to edit the kubeconfig file and change the api host to be your local
 
 
 
+## How to use it
+
+### Pod
+
+Launch a pod (through a deployment, or sts, or something else) on your cluster.
+You can use the following image `forge.k3s.fr/frank/kube-escape:latest`
+
+Don't forget to give it the following env values:
+
+- WEBSOCKET_ROOT_URL
+- WS_ID: facultative, can auto generate itself
+
+Then look at its logs and you'll see the ws url to use when connecting to it
+
+### WS Proxy
+
+You should spawn a WS proxy that will receive connections from the client and the pod.
+It should be accessible by both.
+
+You can override the command of the image and use `./proxy.py`
+
+### Client
+
+Launch your client with:
+```bash
+./client.py <ws_URL_given_by_pod>
+```
+
+This will open a listening socket on localhost port 6443
+
+### Kubectl
+
+Change your kubeconfig's server to `https://localhost:6443`
+
+And then, enjoy!
+
+
+## Considerations
+
+
 ### Security
 
 I guess you could proxy your websockets through an HTTPs endpoint. Wouldn't be bad.

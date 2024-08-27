@@ -2,14 +2,16 @@ import asyncio
 import websockets
 import hashlib
 import random
+import os
+import sys
 
 
 import conn
 
 
-LOCALHOST = '127.0.0.1'
-PORT = 8443
-WEBSOCKET_URL = 'ws://localhost:9999/data'
+LOCALHOST = '::1'
+DEFAULT_LISTEN_PORT = 6443
+WEBSOCKET_URL = 'ws://localhost:9999'
 
 
 async def handle_client(socket_reader, socket_writer):
@@ -70,16 +72,39 @@ async def handle_client(socket_reader, socket_writer):
             socket_writer.close()
             await socket_writer.wait_closed()
 
+
+
+
+def get_config():
+    KUBE_API_PORT = os.environ.get('KUBE_API_PORT', DEFAULT_LISTEN_PORT)
+
+    if len(sys.argv) != 2:
+        print(f"Usage: {sys.argv[0]} <websocket_url>")
+        sys.exit(1)
+
+    ws_url = sys.argv[1]
+    global WEBSOCKET_URL
+    # Yeah, I know this is fugly
+    WEBSOCKET_URL = ws_url
+
+    return {
+        'kube_api_port': KUBE_API_PORT,
+        'websocket_url': ws_url,
+    }
+
+
 async def main():
-    port = PORT
-    while True:
-        try:
-            server = await asyncio.start_server(handle_client, LOCALHOST, port)
-            break
-        except OSError:
-            port += 1
+    cfg = get_config()
+
+    try:
+        server = await asyncio.start_server(handle_client, LOCALHOST, cfg['kube_api_port'])
+    except OSError as e:
+        print(e)
+        print(f"There already is a client listening on port {cfg['kube_api_port']}")
+        sys.exit(1)
+
     async with server:
-        print(f"Server started on {LOCALHOST}:{port}")
+        print(f"Server started on {LOCALHOST} port {cfg['kube_api_port']}")
         await server.serve_forever()
 
 if __name__ == "__main__":

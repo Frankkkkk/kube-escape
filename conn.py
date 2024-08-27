@@ -1,6 +1,7 @@
 from typing import Optional
 import bencoder
 from enum import Enum
+import hashlib
 
 
 
@@ -39,3 +40,10 @@ class WSMsg:
         if self.payload:
             d[b"data"] = self.payload
         return bencoder.encode(d)
+
+    def __repr__(self):
+        ret = f"MSG ({self.socketid}, {self.msg}"
+        if self.msg == MsgType.DATA:
+            ret += f", {hashlib.md5(self.payload).hexdigest()}"
+        ret += ")"
+        return ret

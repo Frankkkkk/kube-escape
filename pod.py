@@ -1,13 +1,13 @@
 import asyncio
-import socket
 import websockets
-import hashlib
+import uuid
+import os
+import pathlib
+from urllib.parse import urlparse
+import colorful
 
 import conn
 
-HOST = '192.168.21.30'
-PORT = 6443
-WEBSOCKET_URL = 'ws://localhost:9999/data'
 
 
 async def handle_socket_read(socketid, tcpreader, ws):
@@ -22,7 +22,7 @@ async def handle_socket_read(socketid, tcpreader, ws):
                 break
 
             c = conn.WSMsg(socketid, conn.MsgType.DATA, data)
-            print(f'TCP@{socketid}>WS: ', hashlib.md5(data).hexdigest())
+            print(f'TCP>WS: {c}')
             await ws.send(c.to_bytes())
 
     except Exception as e:
@@ -31,11 +31,10 @@ async def handle_socket_read(socketid, tcpreader, ws):
         traceback.print_exc()
 
 
-async def handle_ws_incoming(ws, sockets):
+async def handle_ws_incoming(cfg, ws, sockets):
     data = await ws.recv()
 
     c = conn.WSMsg.from_bytes(data)
-    print(f'NEW DATA: {c.socketid} {c.msg} {c.payload}')
     socketid = c.socketid
 
     if c.msg == conn.MsgType.CONNECT:
@@ -44,7 +43,7 @@ async def handle_ws_incoming(ws, sockets):
             return
         else:
             print(f"New socket: {socketid}")
-            tcpreader, tcpwriter = await asyncio.open_connection(HOST, PORT)
+            tcpreader, tcpwriter = await asyncio.open_connection(cfg['kube_api_host'], cfg['kube_api_port'])
             sockets[socketid] = (tcpreader, tcpwriter)
             asyncio.create_task(handle_socket_read(socketid, tcpreader, ws))
 
@@ -54,29 +53,70 @@ async def handle_ws_incoming(ws, sockets):
             return
         else:
             print(f"Socket {socketid} disconnected")
+            tcpreader, tcpwriter = sockets[socketid]
             del sockets[socketid]
             tcpwriter.close()
             await tcpwriter.wait_closed()
 
     elif c.msg == conn.MsgType.DATA:
         tcpreader, tcpwriter = sockets[socketid]
-        print(f'WS@{socketid}>TCP: ', hashlib.md5(data).hexdigest())
+        print(f'WS>TCP: {c}')
         tcpwriter.write(c.payload)
 
 
+def get_config():
+    KUBERNETES_PORT = os.environ.get('KUBERNETES_PORT', 'http://localhost:6443')
+    kube_api = urlparse(KUBERNETES_PORT)
+
+    WEBSOCKET_ROOT_URL = os.environ.get('WEBSOCKET_ROOT_URL', 'ws://localhost:9999')
+
+
+    WS_ID = os.environ.get('WS_ID', None)
+
+    ws_id = WS_ID
+    if ws_id is None:
+        HOSTNAME = os.environ.get('HOSTNAME')
+        # We want to name it as the replicaset, so it's somehow random, but doesn't
+        # change on every pod restart
+        if HOSTNAME.count('-') < 2:
+            ws_id = uuid.uuid4().hex
+        else:
+            ws_id = ''.join(HOSTNAME.split('-')[:2])
+
+
+
+    websocket_full_url = str(pathlib.Path(WEBSOCKET_ROOT_URL) / ws_id)
+
+    # Pathlib replaces `ws://` into `ws:/`. This "fixes" it. lul
+    websocket_full_url = websocket_full_url.replace('s:/', 's://')
+
+    return {
+        'kube_api_host': kube_api.hostname,
+        'kube_api_port': kube_api.port,
+        'websocket_url': websocket_full_url,
+    }
+
 
 async def main():
-    tcpreader, tcpwriter = await asyncio.open_connection(HOST, PORT)
 
-    ws = await websockets.connect(WEBSOCKET_URL)
+    config = get_config()
+    print(\
+f""" === KUBE-ESCAPE ===
 
+A Kube API proxy over WebSockets
+
+Websocket URL: {colorful.bold_coral(config['websocket_url'])}
+Kube API Host: {config['kube_api_host']}
+Kube API Port: {config['kube_api_port']}
+
+Enjoy and fuck Citrix and VDIs!""")
+
+
+    ws = await websockets.connect(config['websocket_url'])
 
     sockets = {}
     while True:
-        await handle_ws_incoming(ws, sockets)
-    
-
-    #await handle_client(tcpreader, tcpwriter, ws)
+        await handle_ws_incoming(config, ws, sockets)
 
 if __name__ == "__main__":
     asyncio.run(main())

@@ -34,7 +34,7 @@ async def handler(websocket):
 async def main():
     # Start the WebSocket server
     ws_port = os.environ.get("WS_PORT", 9999)
-    server = await websockets.asyncio.server.serve(handler, "::", ws_port)
+    server = await websockets.asyncio.server.serve(handler, "", ws_port)
     print(f"WebSocket server listening on ws://[::]:{ws_port}")
     await server.wait_closed()
 

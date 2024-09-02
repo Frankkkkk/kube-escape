@@ -29,7 +29,7 @@ async def handler(websocket):
         print(f"Connection closed: {e}")
     finally:
         # Unregister the client
-        connected_clients.remove(websocket)
+        connected_clients.get(websocket.request.path, set()).remove(websocket)
 
 async def main():
     # Start the WebSocket server
